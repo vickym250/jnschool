@@ -29,6 +29,7 @@ const TransferCertificate = () => {
   }, [id]);
 
   const handlePrint = () => {
+    // 1. Content aur Styles taiyaar karein
     const content = document.getElementById('tc-content').innerHTML;
 
     const printStyles = `
@@ -81,7 +82,7 @@ const TransferCertificate = () => {
           <title>TC - ${student?.name || 'Student'}</title>
           ${printStyles}
         </head>
-        <body onload="window.print(); window.onafterprint = function(){ window.close(); }">
+        <body>
           <div class="outer-border">
             <div class="inner-border">
               <div class="watermark uppercase">S.D. MODEL SCHOOL</div>
@@ -90,13 +91,42 @@ const TransferCertificate = () => {
               </div>
             </div>
           </div>
+          <script>
+            window.onload = function() {
+              setTimeout(function() {
+                window.print();
+                setTimeout(function() { window.close(); }, 500);
+              }, 700);
+            };
+          </script>
         </body>
       </html>
     `;
 
-    const blob = new Blob([fullHTML], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    window.open(url, '_blank');
+    // 2. Mobile vs Desktop Logic
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+    if (isMobile) {
+      // Mobile ke liye Iframe method (Pop-up block nahi hota)
+      const iframe = document.createElement('iframe');
+      iframe.style.display = 'none';
+      document.body.appendChild(iframe);
+      const doc = iframe.contentWindow.document;
+      doc.open();
+      doc.write(fullHTML);
+      doc.close();
+
+      iframe.contentWindow.focus();
+      setTimeout(() => {
+        iframe.contentWindow.print();
+        setTimeout(() => { document.body.removeChild(iframe); }, 2000);
+      }, 1500); // Wait for Tailwind to load
+    } else {
+      // Desktop ke liye naya window method
+      const blob = new Blob([fullHTML], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+    }
   };
 
   if (loading) return <div className="p-10 md:p-20 text-center font-bold text-white bg-slate-900 h-screen">Loading Data...</div>;
@@ -105,7 +135,7 @@ const TransferCertificate = () => {
   return (
     <div className="bg-slate-900 min-h-screen py-4 md:py-10 flex flex-col items-center px-4 no-print">
       
-      {/* Settings Bar - Updated for Mobile Layout */}
+      {/* Settings Bar */}
       <div className="w-full max-w-4xl bg-white p-5 md:p-6 rounded-xl shadow-2xl flex flex-col md:flex-row justify-between items-center gap-6 border-b-4 border-blue-900">
         <div className="flex flex-col w-full md:w-auto">
           <span className="text-[10px] md:text-[11px] font-black text-blue-900 uppercase">Step 1: Verify PNR Number</span>
@@ -127,13 +157,12 @@ const TransferCertificate = () => {
         </div>
       </div>
 
-      {/* Preview Info Box - Mobile Responsive */}
       <div className="mt-6 md:mt-8 p-6 md:p-10 bg-white/5 rounded-lg border border-white/10 text-center w-full max-w-lg">
         <p className="text-white font-medium text-sm md:text-base">TC Preview is optimized for print.</p>
-        <p className="text-slate-400 text-xs md:text-sm mt-2 italic">Official certificate will include ornamental borders and vintage fonts in a new window.</p>
+        <p className="text-slate-400 text-xs md:text-sm mt-2 italic">Official certificate will include ornamental borders and vintage fonts.</p>
       </div>
 
-      {/* HIDDEN CONTENT FOR PRINT (UNCHANGED LOGIC) */}
+      {/* TC Content Area (Hidden on screen) */}
       <div id="tc-content" className="hidden">
         <div className="flex justify-between text-[11px] font-bold uppercase tracking-widest text-blue-800">
           <p>UDISE CODE: 03140201602</p>
