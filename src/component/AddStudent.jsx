@@ -36,7 +36,8 @@ export default function AddStudent({ close, editData }) {
       saveBtn: "SAVE & PRINT FORM",
       updateBtn: "UPDATE DETAILS",
       busLabel: "Bus Facility Required?",
-      busFeeLabel: "Monthly Bus Fee"
+      busFeeLabel: "Monthly Bus Fee",
+      admDate: "Admission Date"
     },
     hi: {
       title: "प्रवेश (Admission)",
@@ -53,7 +54,8 @@ export default function AddStudent({ close, editData }) {
       saveBtn: "फॉर्म सुरक्षित करें और प्रिंट करें",
       updateBtn: "विवरण अपडेट करें",
       busLabel: "क्या बस की सुविधा चाहिए?",
-      busFeeLabel: "मासिक बस शुल्क"
+      busFeeLabel: "मासिक बस शुल्क",
+      admDate: "प्रवेश तिथि"
     }
   };
 
@@ -67,7 +69,8 @@ export default function AddStudent({ close, editData }) {
     fatherName: "", motherName: "", admissionFees: "", totalFees: "",
     aadhaar: "", gender: "", category: "", dob: "", session: "", photo: null, photoURL: "",
     isTransferStudent: false, pnrNumber: "", parentId: "",
-    isBusStudent: false, busFees: "0" 
+    isBusStudent: false, busFees: "0",
+    admissionDate: new Date().toISOString().split('T')[0] // 🔥 Default Today's Date
   });
 
   const [subjects, setSubjects] = useState([]);
@@ -89,16 +92,17 @@ export default function AddStudent({ close, editData }) {
         isBusStudent: editData.isBusStudent || false, 
         busFees: editData.busFees || "0",
         isTransferStudent: editData.isTransferStudent || false,
-        pnrNumber: editData.pnrNumber || ""
+        pnrNumber: editData.pnrNumber || "",
+        admissionDate: editData.admissionDate || new Date().toISOString().split('T')[0]
       });
       setSubjects(editData.subjects || []);
       setSavedStudentId(editData.id);
     } else {
       const now = new Date();
-      const session = now.getMonth() + 1 >= 4 ? `${now.getFullYear()}-${String(now.getFullYear() + 1).slice(-2)}` : `${now.getFullYear() - 1}-${String(now.getFullYear()).slice(-2)}`;
+      const currentSession = now.getMonth() + 1 >= 4 ? `${now.getFullYear()}-${String(now.getFullYear() + 1).slice(-2)}` : `${now.getFullYear() - 1}-${String(now.getFullYear()).slice(-2)}`;
       const initData = async () => {
           const nextReg = await generateRegNo();
-          setForm(prev => ({ ...prev, session, regNo: nextReg }));
+          setForm(prev => ({ ...prev, session: currentSession, regNo: nextReg }));
       };
       initData();
     }
@@ -190,13 +194,14 @@ export default function AddStudent({ close, editData }) {
       const pId = await getOrCreateParent();
       const { photo, id, ...safeForm } = form;
 
+      // 🔥 Fees calculation logic with Session
       const schoolMonthly = Number(form.totalFees || 0);
       const busMonthly = form.isBusStudent ? Number(form.busFees || 0) : 0;
       
       let remainingSchoolPaid = Number(paidAmount || 0);
       let remainingBusPaid = Number(paidBusAmount || 0);
 
-      const feeData = months.reduce((acc, m) => {
+      const feeDataForSession = months.reduce((acc, m) => {
         let curPaidSch = 0;
         if (remainingSchoolPaid >= schoolMonthly && schoolMonthly > 0) {
             curPaidSch = schoolMonthly;
@@ -230,10 +235,13 @@ export default function AddStudent({ close, editData }) {
         await updateDoc(doc(db, "students", editData.id), { ...safeForm, photoURL: downloadURL, parentId: pId, subjects: subjects });
         close();
       } else {
+        // 🔥 Save with fees organized by Session
         const studentDocRef = await addDoc(collection(db, "students"), { 
             ...safeForm, photoURL: downloadURL, parentId: pId, subjects: subjects,
             attendance: months.reduce((acc, m) => ({ ...acc, [m]: { present: 0, absent: 0 } }), {}), 
-            fees: feeData, createdAt: serverTimestamp(), deletedAt: null 
+            fees: { [form.session]: feeDataForSession }, // 🔥 Nested under Session
+            createdAt: serverTimestamp(), 
+            deletedAt: null 
         });
 
         await updateDoc(doc(db, "parents", pId), { students: arrayUnion(studentDocRef.id) });
@@ -269,11 +277,20 @@ export default function AddStudent({ close, editData }) {
           <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-6">
             <section className="grid md:grid-cols-2 gap-4">
               <div className="md:col-span-2 font-bold text-gray-500 border-l-4 border-blue-500 pl-2 uppercase text-[10px] tracking-widest">{t.studentInfo}</div>
-              <input name="name" value={form.name} onChange={handleChange} placeholder={t.name} className="border p-2.5 rounded-lg outline-blue-500 shadow-sm" required />
+              
+              {/* 🔥 Admission Date Field */}
+              <div className="flex flex-col">
+                <p className="text-[9px] font-bold text-blue-600 mb-1 uppercase pl-1">{t.admDate}</p>
+                <input type="date" name="admissionDate" value={form.admissionDate} onChange={handleChange} className="border p-2.5 rounded-lg outline-blue-500" required />
+              </div>
+
+              <input name="name" value={form.name} onChange={handleChange} placeholder={t.name} className="border p-2.5 rounded-lg outline-blue-500 shadow-sm mt-auto" required />
+              
               <div className="grid grid-cols-2 gap-2">
                 <input name="regNo" value={form.regNo} readOnly className="border p-2.5 rounded-lg bg-blue-50 font-bold" />
                 <input name="rollNumber" value={form.rollNumber} readOnly className="border p-2.5 rounded-lg bg-gray-100 italic" />
               </div>
+
               <select name="className" value={form.className} onChange={handleChange} className="border p-2.5 rounded-lg outline-blue-500" required>
                 <option value="">Select Class</option>
                 {classList.map((cls) => <option key={cls} value={cls}>{cls}</option>)}
@@ -306,7 +323,6 @@ export default function AddStudent({ close, editData }) {
               <input type="date" name="dob" value={form.dob} onChange={handleChange} className="border p-2.5 rounded-lg outline-blue-500" required />
               <input name="aadhaar" value={form.aadhaar} onChange={handleChange} placeholder={t.aadhaar} className="border p-2.5 rounded-lg outline-blue-500" required />
 
-              {/* UDISE+ PEN/PNR Logic */}
               <div className="md:col-span-2 bg-blue-50/50 p-3 rounded-xl border border-blue-100">
                 <label className="flex items-center gap-2 text-sm font-bold text-blue-800 cursor-pointer">
                   <input type="checkbox" name="isTransferStudent" checked={form.isTransferStudent} onChange={handleChange} className="w-4 h-4 accent-blue-600" />

@@ -53,7 +53,7 @@ export default function App() {
                   </div>
 
                   {/* CONTENT */}
-                  <div className={`flex flex-col min-h-screen transition-all duration-300 ml-0 md:${isOpen ? "ml-64" : "ml-20"}`}>
+                  <div className={`flex flex-col min-h-screen transition-all duration-300 ml-0 md:${isOpen ? "ml-64" : "ml-0"}`}>
                     <Header />
 
                     <main className="p-4 md:p-6 flex-grow">

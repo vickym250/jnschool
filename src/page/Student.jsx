@@ -18,9 +18,9 @@ import { updateTotalStudents } from "../component/updateTotalStudents";
 
 export default function StudentList() {
   let navigator = useNavigate();
-  // 🔥 Current session define karein (Jo aapka main current session hai)
-  const CURRENT_ACTIVE_SESSION = "2025-26"; 
   
+  // 🔥 Settings
+  const CURRENT_ACTIVE_SESSION = "2025-26"; 
   const sessions = ["2024-25", "2025-26", "2026-27"];
   const [session, setSession] = useState("2025-26");
   const months = ["April", "May", "June", "July", "August", "September", "October", "November", "December", "January", "February", "March"];
@@ -38,6 +38,7 @@ export default function StudentList() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
 
+  // Data Fetching
   useEffect(() => {
     const q = query(collection(db, "students"), orderBy("createdAt", "desc"));
     const unsub = onSnapshot(q, (snap) => {
@@ -50,9 +51,9 @@ export default function StudentList() {
     return () => unsub();
   }, []);
 
+  // Filter Logic
   const filteredStudents = students
     .filter((s) => {
-      // ✅ Session match logic: Select kiye huye session ke bache dikhne chahiye
       const matchSession = s.session === session; 
       const matchClass = s.className === className;
       const matchSearch = s.name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -66,17 +67,22 @@ export default function StudentList() {
     setOpenRe(true); 
   };
 
+  // 🔥 Fees Payment with Session Logic
   const handlePayFees = async (student) => {
-    const feeData = student.fees?.[month] || {};
-    const schoolAmt = Number(feeData.schoolPart || student.totalFees || 0);
-    const busAmt = student.isBusStudent ? Number(feeData.busPart || student.busFees || 0) : 0;
+    // Current selected session ka data nikalein
+    const sessionFees = student.fees?.[session] || {};
+    const monthData = sessionFees[month] || {};
+
+    const schoolAmt = Number(monthData.schoolPart || student.totalFees || 0);
+    const busAmt = student.isBusStudent ? Number(monthData.busPart || student.busFees || 0) : 0;
 
     let paySchool = true;
     let payBus = student.isBusStudent;
 
     toast((t) => (
       <div className="p-2 min-w-[220px]">
-        <p className="font-bold text-gray-800 mb-2 border-b pb-1 text-sm uppercase text-center">Fees: {month}</p>
+        <p className="font-bold text-gray-800 mb-1 border-b pb-1 text-sm uppercase text-center">Fees: {month}</p>
+        <p className="text-[10px] text-center text-blue-600 font-bold mb-2 uppercase">Session: {session}</p>
         <div className="space-y-2 mb-4 text-left">
           <label className="flex items-center gap-3 cursor-pointer p-1.5 hover:bg-blue-50 rounded">
             <input type="checkbox" defaultChecked={paySchool} onChange={(e) => paySchool = e.target.checked} className="w-4 h-4 accent-blue-600" />
@@ -94,12 +100,14 @@ export default function StudentList() {
             onClick={async () => {
               if (!paySchool && !payBus) { toast.error("Select at least one!"); return; }
               try {
-                const updateObj = { [`fees.${month}.paidAt`]: serverTimestamp() };
-                if (paySchool) updateObj[`fees.${month}.paidSchool`] = schoolAmt;
-                if (payBus) updateObj[`fees.${month}.paidBus`] = busAmt;
+                // 🔥 Database path: fees -> [session] -> [month]
+                const updateObj = { [`fees.${session}.${month}.paidAt`]: serverTimestamp() };
+                if (paySchool) updateObj[`fees.${session}.${month}.paidSchool`] = schoolAmt;
+                if (payBus) updateObj[`fees.${session}.${month}.paidBus`] = busAmt;
+                
                 await updateDoc(doc(db, "students", student.id), updateObj);
                 toast.dismiss(t.id);
-                toast.success("Done!");
+                toast.success(`Fees paid for ${session}`);
               } catch (err) { toast.error("Error!"); }
             }}
           >Confirm</button>
@@ -141,13 +149,13 @@ export default function StudentList() {
           <button onClick={() => { setEditStudent(null); setOpen(true); }} className="bg-[#FFC107] text-black px-5 py-1.5 rounded-md font-bold text-sm shadow hover:bg-amber-500 uppercase">Add Student</button>
         </div>
 
-        {/* Table */}
-        <div className="border border-gray-200 rounded-lg overflow-hidden shadow-sm">
-          <table className="w-full text-left">
+        {/* ✅ Table Wrapper for Horizontal Scroll */}
+        <div className="border border-gray-200 rounded-lg overflow-x-auto shadow-sm bg-white">
+          <table className="w-full text-left min-w-[1000px]">
             <thead className="bg-[#E2E8F0] text-[#475569] text-[12px] font-bold uppercase tracking-tight">
               <tr>
                 <th className="px-4 py-4">Photo</th>
-                <th className="px-4 py-4">Roll</th>
+                <th className="px-4 py-4 text-center">Roll</th>
                 <th className="px-4 py-4">Name</th>
                 <th className="px-4 py-4">Class</th>
                 <th className="px-4 py-4 text-center">Total</th>
@@ -158,12 +166,13 @@ export default function StudentList() {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filteredStudents.map((s) => {
-                const fee = s.fees?.[month] || {};
-                const schoolPart = Number(fee.schoolPart || s.totalFees || 0);
-                const busPart = s.isBusStudent ? Number(fee.busPart || s.busFees || 0) : 0;
+                // 🔥 Session wise calculation
+                const sessionFee = s.fees?.[session]?.[month] || {};
+                const schoolPart = Number(sessionFee.schoolPart || s.totalFees || 0);
+                const busPart = s.isBusStudent ? Number(sessionFee.busPart || s.busFees || 0) : 0;
                 const totalAmt = schoolPart + busPart;
-                const totalPaid = Number(fee.paidSchool || 0) + Number(fee.paidBus || 0);
-                const isSchoolPaid = Number(fee.paidSchool || 0) >= schoolPart && schoolPart > 0;
+                const totalPaid = Number(sessionFee.paidSchool || 0) + Number(sessionFee.paidBus || 0);
+                const isSchoolPaid = Number(sessionFee.paidSchool || 0) >= schoolPart && schoolPart > 0;
                 const isFullPaid = totalPaid >= totalAmt && totalAmt > 0;
 
                 return (
@@ -185,8 +194,6 @@ export default function StudentList() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-center gap-1.5">
-                        
-                        {/* ✅ Logic: Agar student ka session CURRENT ACTIVE SESSION (e.g., 2025-26) hai tab Edit dikhao */}
                         {s.session === CURRENT_ACTIVE_SESSION ? (
                           <>
                             {isSchoolPaid ? (
@@ -197,14 +204,11 @@ export default function StudentList() {
                             <button onClick={() => { setEditStudent(s); setOpen(true); }} className="bg-[#FBBF24] text-white px-3 py-1 rounded text-[11px] font-bold hover:bg-amber-500 uppercase">Edit</button>
                           </>
                         ) : (
-                          /* ✅ Agar student OLD SESSION ka hai tab New aur TC dikhao */
                           <>
                             <button onClick={() => handleReAdmission(s)} className="bg-emerald-600 text-white px-2 py-1 rounded text-[11px] font-bold hover:bg-emerald-700 uppercase">New</button>
                             <button onClick={() => navigator(`/tc/${s.id}`)} className="bg-red-600 text-white px-2 py-1 rounded text-[11px] font-bold hover:bg-red-700 uppercase">TC</button>
                           </>
                         )}
-                        
-                        {/* Common Buttons */}
                         <button onClick={() => handleDelete(s.id)} className="bg-[#EF4444] text-white px-3 py-1 rounded text-[11px] font-bold hover:bg-red-600 uppercase">Delete</button>
                         <button onClick={() => navigator(`/idcard/${s.id}`)} className="bg-white text-blue-600 border border-blue-600 px-3 py-1 rounded text-[11px] font-bold hover:bg-blue-50 uppercase tracking-tighter">IdCard</button>
                       </div>
@@ -228,10 +232,10 @@ export default function StudentList() {
               studentId={receiptStudent.id}
               name={receiptStudent.name}
               studentClass={receiptStudent.className}
-              monthlyFee={receiptStudent.fees?.[month]?.paidSchool || 0}
-              busFee={receiptStudent.fees?.[month]?.paidBus || 0}
+              monthlyFee={receiptStudent.fees?.[session]?.[month]?.paidSchool || 0}
+              busFee={receiptStudent.fees?.[session]?.[month]?.paidBus || 0}
               payMonth={`${month} (${session})`}
-              paidAt={receiptStudent.fees?.[month]?.paidAt}
+              paidAt={receiptStudent.fees?.[session]?.[month]?.paidAt}
               onClose={() => setShowReceipt(false)}
             />
           </div>
