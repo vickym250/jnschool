@@ -29,14 +29,14 @@ import SchoolManager from "./page/SchoolManager";
 import TransferCertificate from "./component/TransferCertificate";
 
 // ... (baki imports same rahenge)
+// ... (imports same rahenge)
 
 export default function App() {
-  const { isOpen } = useSidebar();
+  const { isOpen, setIsOpen } = useSidebar(); // Maan ke chal rahe hain ki setIsOpen bhi available hai
 
   return (
     <BrowserRouter>
       <Routes>
-        {/* Login Page as Default */}
         <Route path="/" element={<Login />} />
         <Route path="/profile/:id" element={<StudentProfile />} />
 
@@ -45,18 +45,31 @@ export default function App() {
           element={
             <SchoolStatusGuard>
               <ProtectedRoute>
-                <div className="min-h-screen bg-gray-100 relative">
+                <div className="min-h-screen bg-gray-100 flex overflow-hidden">
                   
-                  {/* SIDEBAR */}
-                  <div className={`fixed top-0 left-0 h-screen z-50 bg-white transition-all duration-300 ${isOpen ? "w-64" : "w-0"} md:${isOpen ? "w-64" : "w-20"}`}>
+                  {/* SIDEBAR - Responsive Logic */}
+                  {/* Mobile: Hidden by default, slides in. Desktop: Fixed width or collapsed icons */}
+                  <aside 
+                    className={`fixed inset-y-0 left-0 z-50 bg-white shadow-xl transition-all duration-300 ease-in-out
+                      ${isOpen ? "translate-x-0 w-64" : "-translate-x-full w-64"} 
+                      md:translate-x-0 md:static md:block ${isOpen ? "md:w-64" : "md:w-20"}`}
+                  >
                     <Sidebar />
-                  </div>
+                  </aside>
 
-                  {/* CONTENT */}
-                  <div className={`flex flex-col min-h-screen transition-all duration-300 ml-0 md:${isOpen ? "ml-64" : "ml-0"}`}>
+                  {/* OVERLAY for Mobile - Sidebar khulne par background blackish ho jaye */}
+                  {isOpen && (
+                    <div 
+                      className="fixed inset-0 bg-black/50 z-40 md:hidden" 
+                      onClick={() => setIsOpen(false)} 
+                    />
+                  )}
+
+                  {/* MAIN CONTENT AREA */}
+                  <div className="flex flex-col flex-1 h-screen overflow-y-auto overflow-x-hidden">
                     <Header />
 
-                    <main className="p-4 md:p-6 flex-grow">
+                    <main className="p-4 md:p-8">
                       <Routes>
                         <Route path="/dash" element={<Dashboard />} />
                         <Route path="/student" element={<StudentList />} />
@@ -74,17 +87,15 @@ export default function App() {
                         <Route path="/help" element={<HelpPage />} />
                         <Route path="/all-report/:className" element={<AllReport />} />
                         <Route path="/tc/:id" element={<TransferCertificate />} />
-                        
-                        {/* ✅ Change Password Route ko upar rakha hai */}
                         <Route path="/change-password" element={<ChangePassword/>} />
                         <Route path="/exam-time" element={<ExamTimetable/>} />
                         <Route path="/manage" element={<SchoolManager/>} />
 
-                        {/* ✅ Yeh catch-all route dashboard par bhej dega agar URL galat ho */}
                         <Route path="*" element={<Navigate to="/dash" replace />} />
                       </Routes>
                     </main>
                   </div>
+
                 </div>
               </ProtectedRoute>
             </SchoolStatusGuard>
@@ -94,4 +105,10 @@ export default function App() {
     </BrowserRouter>
   );
 }
+
+
+
+
+
+
 

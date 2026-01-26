@@ -22,7 +22,7 @@ export default function Header() {
 
   return (
     <div className="w-full bg-white shadow-sm p-3 md:p-4 sticky top-0 z-40 border-b border-slate-100">
-      <div className=" container  mx-auto flex justify-between items-center">
+      <div className="  container  mx-auto flex justify-between items-center">
         
         {/* LEFT: Sidebar Toggle & App Name */}
         <div className="flex items-center gap-3">

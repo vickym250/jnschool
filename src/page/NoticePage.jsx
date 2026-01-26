@@ -122,7 +122,7 @@ export default function NoticePage() {
   };
 
   return (
-    <div className="p-6 bg-gray-100 min-h-screen">
+    <div className="  container mx-auto p-6 bg-gray-100 min-h-screen">
 
       <h2 className="text-2xl font-bold mb-4">Notice Board (Audience Wise)</h2>
 

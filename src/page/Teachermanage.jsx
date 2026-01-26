@@ -2,7 +2,6 @@ import React, { useEffect, useState } from "react";
 import {
   onSnapshot,
   updateDoc,
-  deleteDoc,
   doc,
   collection,
   serverTimestamp,
@@ -12,8 +11,8 @@ import { db } from "../firebase";
 import toast from "react-hot-toast";
 import { AddTeacherPopup } from "../component/TeacherAdd";
 import SalaryReceipt from "../component/SalaryReceipt";
+import { Wallet, Users, Clock, Trash2, Printer, ChevronDown } from "lucide-react";
 
-/* ================= MONTHS (JANUARY–DECEMBER) ================= */
 const months = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December"
@@ -25,12 +24,9 @@ export default function TeachersManagementPage() {
   const [holidays, setHolidays] = useState({});
   const [showAdd, setShowAdd] = useState(false);
   const [editTeacher, setEditTeacher] = useState(null);
-
-  /* RECEIPT STATE */
   const [showReceipt, setShowReceipt] = useState(false);
   const [receiptData, setReceiptData] = useState(null);
 
-  /* ================= LOAD TEACHERS ================= */
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "teachers"), (snap) => {
       setTeachers(
@@ -45,21 +41,15 @@ export default function TeachersManagementPage() {
     return unsub;
   }, []);
 
-  /* ================= LOAD HOLIDAYS FROM METADATA ================= */
   useEffect(() => {
     const fetchHolidays = async () => {
       const holidayDocRef = doc(db, "metadata", `teacher_holidays_${month}`);
       const docSnap = await getDoc(holidayDocRef);
-      if (docSnap.exists()) {
-        setHolidays(docSnap.data());
-      } else {
-        setHolidays({});
-      }
+      setHolidays(docSnap.exists() ? docSnap.data() : {});
     };
     fetchHolidays();
   }, [month]);
 
-  /* ================= HELPERS ================= */
   const getDaysInMonth = (m) => {
     const year = new Date().getFullYear();
     const monthIdx = months.indexOf(m);
@@ -72,54 +62,46 @@ export default function TeachersManagementPage() {
     return new Date(year, monthIdx, day).getDay() === 0;
   };
 
-  /* ================= CALCULATION LOGIC ================= */
   const getCalculatedData = (teacher, currentMonth) => {
-    const totalDays = getDaysInMonth(currentMonth);
+    const totalDaysInMonth = getDaysInMonth(currentMonth);
+    const now = new Date();
+    const today = now.getDate();
+    const currentMonthIdx = now.getMonth();
+    const selectedMonthIdx = months.indexOf(currentMonth);
+
     let absentCount = 0;
     let presentCount = 0;
+    let leaveCount = 0;
     let holidayAndSundayCount = 0;
 
-    for (let i = 1; i <= totalDays; i++) {
+    for (let i = 1; i <= totalDaysInMonth; i++) {
+      if (selectedMonthIdx === currentMonthIdx && i > today) break;
+
       const dateKey = `${currentMonth}_day_${i}`;
       const holidayKey = `day_${i}`;
       const status = teacher.attendance?.[dateKey];
 
-      if (status === "A") {
-        absentCount++;
-      } else if (status === "P") {
-        presentCount++;
-      } else if (isSunday(i, currentMonth) || holidays[holidayKey]) {
-        holidayAndSundayCount++;
-      }
+      if (status === "A") absentCount++;
+      else if (status === "P") presentCount++;
+      else if (status === "L") leaveCount++;
+      else if (isSunday(i, currentMonth) || holidays[holidayKey]) holidayAndSundayCount++;
     }
 
     const monthlySalary = Number(teacher.salary) || 0;
-    const perDayRate = monthlySalary / totalDays;
-    
-    // Formula: No deduction for Holidays or Sundays. Only 'A' marks deduct salary.
+    const perDayRate = monthlySalary / totalDaysInMonth;
+    const totalPaidDays = presentCount + leaveCount + holidayAndSundayCount;
+    const finalPayable = Math.round(totalPaidDays * perDayRate);
     const deduction = Math.round(absentCount * perDayRate);
-    const finalPayable = monthlySalary - deduction;
 
-    return { 
-      present: presentCount, 
-      absent: absentCount, 
-      paidHolidays: holidayAndSundayCount, 
-      deduction, 
-      finalPayable,
-      monthlySalary 
-    };
+    return { present: presentCount, absent: absentCount, leave: leaveCount, paidHolidays: holidayAndSundayCount, totalPaidDays, deduction, finalPayable, monthlySalary };
   };
 
-  /* ================= PAY SALARY ACTION ================= */
   const handlePay = (teacher, finalSalary) => {
     toast((t) => (
-      <div className="text-sm p-1">
-        <p className="font-semibold mb-2">
-          Pay <b>₹{finalSalary}</b> to {teacher.name} for <b>{month}</b>?
-        </p>
+      <div className="flex flex-col gap-2 p-1 text-sm">
+        <p className="font-semibold text-slate-800">Confirm ₹{finalSalary} for {teacher.name} ({month})?</p>
         <div className="flex gap-2">
-          <button
-            className="bg-green-600 text-white px-3 py-1 rounded font-bold transition-all hover:bg-green-700"
+          <button className="bg-indigo-600 text-white px-4 py-1.5 rounded-lg font-bold"
             onClick={async () => {
               try {
                 await updateDoc(doc(db, "teachers", teacher.id), {
@@ -128,138 +110,139 @@ export default function TeachersManagementPage() {
                   [`salaryDetails.${month}.paidAt`]: serverTimestamp(),
                 });
                 toast.dismiss(t.id);
-                toast.success(`${month} Salary Paid Successfully`);
-              } catch (e) {
-                toast.error("Error paying salary");
-              }
-            }}
-          >
-            Confirm
-          </button>
-          <button
-            className="bg-gray-200 px-3 py-1 rounded"
-            onClick={() => toast.dismiss(t.id)}
-          >
-            No
-          </button>
+                toast.success("Salary Paid!");
+              } catch (e) { toast.error("Error!"); }
+            }}>Confirm</button>
+          <button className="bg-slate-100 px-4 py-1.5 rounded-lg" onClick={() => toast.dismiss(t.id)}>Cancel</button>
         </div>
       </div>
-    ), { duration: 4000 });
+    ), { duration: 5000 });
   };
 
-  /* ================= DELETE ACTION ================= */
-  const handleDelete = async (id) => {
-    if (window.confirm("Do you really want to delete this teacher?")) {
-      await deleteDoc(doc(db, "teachers", id));
-      toast.success("Teacher deleted");
+  /* ================= SOFT DELETE ACTION ================= */
+  const handleSoftDelete = async (id) => {
+    if (window.confirm("Bhai, kya aap is teacher ko list se hatana chahte hain? (Data safe rahega)")) {
+      try {
+        await updateDoc(doc(db, "teachers", id), {
+          isDeleted: true // Permanent delete nahi kiya, bas mark kar diya
+        });
+        toast.success("Teacher removed from list");
+      } catch (err) {
+        toast.error("Error removing teacher");
+      }
     }
   };
 
-  return (
-    <div className="p-4 md:p-6 bg-slate-50 min-h-screen">
+  // 🔥 Filter teachers: Sirf unhe dikhao jo deleted nahi hain
+  const activeTeachers = teachers.filter(t => !t.isDeleted);
 
-      {/* ================= HEADER ================= */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6 bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
-        <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-          <h1 className="text-2xl font-black text-slate-800 tracking-tight">Teacher Payroll</h1>
-          <select
-            value={month}
-            onChange={(e) => setMonth(e.target.value)}
-            className="border-2 border-slate-200 bg-slate-50 text-slate-700 px-4 py-2 rounded-xl font-bold outline-none focus:border-blue-500 transition-all cursor-pointer"
-          >
-            {months.map((m) => <option key={m}>{m}</option>)}
-          </select>
+  const stats = activeTeachers.reduce((acc, t) => {
+    const data = getCalculatedData(t, month);
+    const isPaid = Boolean(t.salaryDetails?.[month]?.paidAt);
+    acc.totalPayout += data.finalPayable;
+    if (isPaid) acc.paidCount++;
+    else acc.pendingCount++;
+    return acc;
+  }, { totalPayout: 0, paidCount: 0, pendingCount: 0 });
+
+  return (
+    <div className="container mx-auto p-4 md:p-8 bg-[#F8FAFC] min-h-screen font-sans">
+      
+      {/* HEADER SECTION */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+        <div>
+          <h1 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+            <Wallet className="text-indigo-600" size={32} /> Payroll Dashboard
+          </h1>
+          <p className="text-slate-500 font-medium tracking-tight">Real-time salary calculation based on past days.</p>
         </div>
 
-        <button
-          className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-3 rounded-xl shadow-lg shadow-blue-100 flex items-center gap-2 transition-all active:scale-95"
-          onClick={() => {
-            setEditTeacher(null);
-            setShowAdd(true);
-          }}
-        >
-          <span className="text-xl">+</span> Add Teacher
-        </button>
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <select
+              value={month}
+              onChange={(e) => setMonth(e.target.value)}
+              className="appearance-none bg-white border border-slate-200 pl-4 pr-10 py-3 rounded-2xl font-bold text-slate-700 shadow-sm outline-none focus:ring-2 ring-indigo-500 cursor-pointer"
+            >
+              {months.map((m) => <option key={m}>{m}</option>)}
+            </select>
+            <ChevronDown className="absolute right-3 top-3.5 text-slate-400 pointer-events-none" size={20} />
+          </div>
+          <button onClick={() => { setEditTeacher(null); setShowAdd(true); }} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-6 py-3 rounded-2xl shadow-lg transition-all active:scale-95">
+            + Add New Teacher
+          </button>
+        </div>
       </div>
 
-      {/* ================= POPUP ================= */}
-      {showAdd && (
-        <AddTeacherPopup
-          close={() => setShowAdd(false)}
-          editData={editTeacher}
-        />
-      )}
+      {/* STATS CARDS */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-8">
+        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-5">
+          <div className="bg-indigo-100 text-indigo-600 p-4 rounded-2xl"><Users size={24} /></div>
+          <div><p className="text-slate-500 text-xs font-bold uppercase tracking-wider">Total Staff</p><h3 className="text-2xl font-black text-slate-800">{activeTeachers.length}</h3></div>
+        </div>
+        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-5">
+          <div className="bg-emerald-100 text-emerald-600 p-4 rounded-2xl"><Wallet size={24} /></div>
+          <div><p className="text-slate-500 text-xs font-bold uppercase tracking-wider">Payout ({month})</p><h3 className="text-2xl font-black text-slate-800">₹{stats.totalPayout.toLocaleString()}</h3></div>
+        </div>
+        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-5">
+          <div className="bg-orange-100 text-orange-600 p-4 rounded-2xl"><Clock size={24} /></div>
+          <div><p className="text-slate-500 text-xs font-bold uppercase tracking-wider">Pending</p><h3 className="text-2xl font-black text-slate-800">{stats.pendingCount}</h3></div>
+        </div>
+      </div>
 
-      {/* ================= DESKTOP TABLE ================= */}
-      <div className="hidden md:block bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-200">
-        <table className="w-full text-left">
-          <thead className="bg-slate-800 text-white text-[11px] uppercase tracking-widest">
+      {/* DESKTOP TABLE */}
+      <div className="hidden md:block bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden">
+        <table className="w-full">
+          <thead className="bg-slate-50/50 border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-widest text-left">
             <tr>
-              <th className="p-4">Teacher Profile</th>
-              <th className="p-4 text-center">Attd (P / A / H+S)</th>
-              <th className="p-4">Base Salary</th>
-              <th className="p-4">Deduction (A)</th>
-              <th className="p-4">Net Payable</th>
-              <th className="p-4">Status</th>
-              <th className="p-4 text-center">Actions</th>
+              <th className="p-5">Teacher Info</th>
+              <th className="p-5 text-center">Attd (P/A/L/H)</th>
+              <th className="p-5">Paid Days</th>
+              <th className="p-5">Net Payable</th>
+              <th className="p-5 text-center">Status</th>
+              <th className="p-5 text-center">Actions</th>
             </tr>
           </thead>
-
-          <tbody className="divide-y divide-slate-100">
-            {teachers.map((t) => {
+          <tbody className="divide-y divide-slate-50">
+            {activeTeachers.map((t) => {
               const data = getCalculatedData(t, month);
-              const salaryInfo = t.salaryDetails?.[month];
-              const isPaid = Boolean(salaryInfo?.paidAt);
-
+              const isPaid = Boolean(t.salaryDetails?.[month]?.paidAt);
               return (
-                <tr key={t.id} className="hover:bg-blue-50/40 transition-colors">
-                  <td className="p-4 flex items-center gap-3">
-                    <div className="w-10 h-10 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-bold border-2 border-white shadow-sm">{t.name?.[0]}</div>
-                    <div>
-                      <div className="font-bold text-slate-700">{t.name}</div>
-                      <div className="text-[10px] text-slate-400 font-medium">{t.subject}</div>
+                <tr key={t.id} className="hover:bg-slate-50/50 transition-colors">
+                  <td className="p-5">
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center font-black border-2 border-white shadow-sm overflow-hidden">
+                        {t.photoURL ? <img src={t.photoURL} className="w-full h-full object-cover" alt="t" /> : t.name?.[0]}
+                      </div>
+                      <div>
+                        <div className="font-extrabold text-slate-800 leading-none mb-1">{t.name}</div>
+                        <div className="text-[10px] text-slate-400 font-bold uppercase">{t.subject}</div>
+                      </div>
                     </div>
                   </td>
-
-                  <td className="p-4 text-center text-xs font-bold">
-                    <span className="text-green-600">{data.present}P</span> / 
-                    <span className="text-red-500 mx-1">{data.absent}A</span> / 
-                    <span className="text-blue-500">{data.paidHolidays}H</span>
+                  <td className="p-5 text-center">
+                    <div className="flex justify-center gap-1.5 font-black text-[10px]">
+                      <span className="bg-emerald-50 text-emerald-600 px-2 py-1 rounded">{data.present}P</span>
+                      <span className="bg-rose-50 text-rose-600 px-2 py-1 rounded">{data.absent}A</span>
+                      <span className="bg-amber-50 text-amber-600 px-2 py-1 rounded">{data.leave}L</span>
+                      <span className="bg-blue-50 text-blue-600 px-2 py-1 rounded">{data.paidHolidays}H</span>
+                    </div>
                   </td>
-
-                  <td className="p-4 font-semibold text-slate-600">₹{data.monthlySalary}</td>
-                  <td className="p-4 text-red-400 font-medium">- ₹{data.deduction}</td>
-                  <td className="p-4 font-black text-blue-600 text-lg">₹{data.finalPayable}</td>
-
-                  <td className="p-4">
-                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                      isPaid ? "bg-green-100 text-green-700" : "bg-orange-100 text-orange-700"
-                    }`}>
-                      {isPaid ? "Paid" : "Pending"}
+                  <td className="p-5 font-bold text-slate-600 text-center">{data.totalPaidDays} Days</td>
+                  <td className="p-5 font-black text-slate-900 text-lg">₹{data.finalPayable}</td>
+                  <td className="p-5 text-center">
+                    <span className={`px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-tighter ${isPaid ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                      {isPaid ? "✔ Processed" : "● Unpaid"}
                     </span>
                   </td>
-
-                  <td className="p-4 text-center">
-                    <div className="flex justify-center gap-2">
+                  <td className="p-5 text-center">
+                    <div className="flex justify-center gap-3">
                       {!isPaid ? (
-                        <button
-                          onClick={() => handlePay(t, data.finalPayable)}
-                          className="bg-slate-800 text-white text-[10px] font-bold px-4 py-2 rounded-lg hover:bg-slate-900 transition-all active:scale-90"
-                        >
-                          PAY NOW
-                        </button>
+                        <button onClick={() => handlePay(t, data.finalPayable)} className="bg-slate-900 text-white text-[10px] font-bold px-5 py-2.5 rounded-xl">Pay Now</button>
                       ) : (
-                        <button
-                          onClick={() => {
-                            setReceiptData({ teacher: t, month, salaryInfo });
-                            setShowReceipt(true);
-                          }}
-                          className="border-2 border-blue-600 text-blue-600 text-[10px] font-bold px-4 py-2 rounded-lg hover:bg-blue-50 transition-all"
-                        >
-                          RECEIPT
-                        </button>
+                        <button onClick={() => { setReceiptData({ teacher: t, month, salaryInfo: t.salaryDetails[month] }); setShowReceipt(true); }} className="bg-white border-2 border-slate-200 text-slate-700 text-[10px] font-bold px-5 py-2.5 rounded-xl flex items-center gap-2"><Printer size={14}/> Receipt</button>
                       )}
-                      <button onClick={() => handleDelete(t.id)} className="text-slate-300 hover:text-red-500 transition-colors">🗑️</button>
+                      <button onClick={() => handleSoftDelete(t.id)} className="text-slate-300 hover:text-rose-500 transition-colors"><Trash2 size={18}/></button>
                     </div>
                   </td>
                 </tr>
@@ -269,60 +252,43 @@ export default function TeachersManagementPage() {
         </table>
       </div>
 
-      {/* ================= MOBILE VIEW ================= */}
+      {/* MOBILE VIEW */}
       <div className="md:hidden space-y-4">
-        {teachers.map((t) => {
+        {activeTeachers.map((t) => {
           const data = getCalculatedData(t, month);
-          const salaryInfo = t.salaryDetails?.[month];
-          const isPaid = Boolean(salaryInfo?.paidAt);
-
+          const isPaid = Boolean(t.salaryDetails?.[month]?.paidAt);
           return (
-            <div key={t.id} className="bg-white p-5 rounded-2xl shadow-md border border-slate-100 relative">
-               <span className={`absolute top-4 right-4 px-2 py-1 rounded-full text-[8px] font-black uppercase ${
-                  isPaid ? "bg-green-100 text-green-600" : "bg-orange-100 text-orange-600"
-                }`}>
-                  {isPaid ? "Paid" : "Pending"}
-                </span>
-
-              <div className="flex gap-4 items-center mb-4">
-                <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center font-bold text-lg">{t.name?.[0]}</div>
+            <div key={t.id} className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 relative overflow-hidden">
+               <div className={`absolute top-0 right-0 px-6 py-2 rounded-bl-3xl text-[9px] font-black uppercase ${isPaid ? "bg-emerald-500 text-white" : "bg-amber-500 text-white"}`}>{isPaid ? "Paid" : "Pending"}</div>
+               <div className="flex gap-4 items-center mb-6">
+                <div className="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center font-black text-xl overflow-hidden shadow-sm">
+                  {t.photoURL ? <img src={t.photoURL} className="w-full h-full object-cover" alt="t" /> : t.name?.[0]}
+                </div>
                 <div>
-                  <div className="font-bold text-slate-800">{t.name}</div>
-                  <div className="text-xs text-slate-400 font-medium">{t.subject}</div>
+                  <div className="font-extrabold text-slate-900 text-lg leading-tight">{t.name}</div>
+                  <div className="text-xs text-slate-400 font-bold uppercase tracking-widest">{t.subject}</div>
                 </div>
               </div>
-
-              <div className="grid grid-cols-2 gap-y-4 border-t border-slate-50 pt-4 text-xs">
-                <div><span className="text-slate-400 block text-[9px] uppercase">Attendance</span> <b className="text-slate-700">{data.present}P / {data.absent}A / {data.paidHolidays}H</b></div>
-                <div><span className="text-slate-400 block text-[9px] uppercase">Final Payable</span> <b className="text-blue-600 text-sm">₹{data.finalPayable}</b></div>
+              <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-2xl text-xs font-bold mb-6">
+                <div><span className="text-slate-400 block text-[9px] uppercase mb-1">Paid Days</span> <span className="text-slate-700">{data.totalPaidDays} Days</span></div>
+                <div><span className="text-slate-400 block text-[9px] uppercase mb-1">Final Amount</span> <span className="text-indigo-600 text-sm">₹{data.finalPayable}</span></div>
               </div>
-
-              <div className="mt-5 flex gap-2">
+              <div className="flex gap-3">
                 {!isPaid ? (
-                  <button onClick={() => handlePay(t, data.finalPayable)} className="flex-1 bg-blue-600 text-white font-bold py-3 rounded-xl shadow-lg shadow-blue-50 active:scale-95 transition-all">Pay Salary</button>
+                  <button onClick={() => handlePay(t, data.finalPayable)} className="flex-1 bg-indigo-600 text-white font-black py-4 rounded-2xl shadow-lg text-sm transition-all active:scale-95">Pay Salary</button>
                 ) : (
-                  <button onClick={() => { setReceiptData({ teacher: t, month, salaryInfo }); setShowReceipt(true); }} className="flex-1 bg-slate-800 text-white font-bold py-3 rounded-xl active:scale-95 transition-all">View Receipt</button>
+                  <button onClick={() => { setReceiptData({ teacher: t, month, salaryInfo: t.salaryDetails[month] }); setShowReceipt(true); }} className="flex-1 bg-slate-900 text-white font-black py-4 rounded-2xl text-sm flex items-center justify-center gap-2"><Printer size={18}/> View Receipt</button>
                 )}
-                <button onClick={() => handleDelete(t.id)} className="bg-slate-100 text-slate-400 px-4 rounded-xl">🗑️</button>
+                <button onClick={() => handleSoftDelete(t.id)} className="bg-rose-50 text-rose-500 px-5 rounded-2xl transition-all active:scale-95"><Trash2 size={20}/></button>
               </div>
             </div>
           );
         })}
       </div>
 
-      {/* ================= RECEIPT MODAL ================= */}
+      {showAdd && <AddTeacherPopup close={() => setShowAdd(false)} editData={editTeacher} />}
       {showReceipt && receiptData && (
-        <SalaryReceipt
-          teacherName={receiptData.teacher.name}
-          subject={receiptData.teacher.subject}
-          phone={receiptData.teacher.phone}
-          month={receiptData.month}
-          totalAmount={receiptData.salaryInfo.total}
-          paidAmount={receiptData.salaryInfo.paid}
-          paidAt={receiptData.salaryInfo.paidAt}
-          receiptNo={`SAL-${receiptData.month}-${receiptData.teacher.id}`}
-          onClose={() => setShowReceipt(false)}
-        />
+        <SalaryReceipt {...receiptData.teacher} teacherName={receiptData.teacher.name} month={receiptData.month} totalAmount={receiptData.salaryInfo.total} paidAmount={receiptData.salaryInfo.paid} paidAt={receiptData.salaryInfo.paidAt} receiptNo={`SAL-${receiptData.month}-${receiptData.teacher.id}`} onClose={() => setShowReceipt(false)} />
       )}
     </div>
   );
