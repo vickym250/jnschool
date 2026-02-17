@@ -14,7 +14,9 @@ import {
   HiOutlineAcademicCap,
   HiOutlineBadgeCheck,
   HiX,
-  HiOutlineCog
+  HiOutlineCog,
+  HiOutlineCurrencyDollar,
+  HiOutlineDocumentText
 } from "react-icons/hi"; 
 
 const Sidebar = () => {
@@ -45,11 +47,35 @@ const Sidebar = () => {
       ]
     },
     { 
+      name: "Fees Master", 
+      icon:<HiOutlineCurrencyDollar />,
+      subMenu: [
+
+        { path: "/feescon", name: "Setup" },
+        { path: "/feessetup", name: "Mothaly Fees Setup" },
+        { path: "/feesmaster", name: "Set class Fees" },
+        { path: "/busplane", name: "Location Bus " },
+     
+      ]
+    },
+    { 
+      name: "Admit Card Master", 
+      icon:<HiOutlineDocumentText className="w-5 h-5" />,
+      subMenu: [
+       
+        { path: "/submap", name: "Set Subject" },
+        { path: "/exam-time", name: "Exam-Timetable " },
+        { path: "/admitcard", name: "Admit- Card " },
+     
+      ]
+    },
+    { 
       name: "Teachers", 
       icon: <HiOutlineUserCircle />,
       subMenu: [
         { path: "/teacher", name: "Teacher Profiles" },
         { path: "/teacherattendace", name: "Teacher Attendance" },
+        { path: "/teachertime", name: "Teacher Time" },
       ]
     },
     { path: "/homework", name: "Homework", icon: <HiOutlineBookOpen /> },

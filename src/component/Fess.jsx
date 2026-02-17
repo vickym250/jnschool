@@ -1,199 +1,274 @@
 import React, { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
 import { db } from "../firebase";
-import { doc, getDoc } from "firebase/firestore";
+import {
+  collection,
+  getDocs,
+  query,
+  where,
+  doc,
+  getDoc,
+} from "firebase/firestore";
 
-export default function FeesReceipt({
-  studentId,
-  name,
-  studentClass,
-  monthlyFee = 0,
-  busFee = 0,
-  payMonth = "",
-  paidAt,
-  onClose,
-}) {
+export default function MarksSheet() {
+  const { studentId, session } = useParams();
+  const [loading, setLoading] = useState(true);
+  const [classResults, setClassResults] = useState([]);
+  const [subjects, setSubjects] = useState([]);
+  
+  // Dynamic School State (Firebase se aayega)
   const [school, setSchool] = useState({
-    name: "BRIGHT PUBLIC HIGH SCHOOL",
-    address: "Siddharth Nagar, Uttar Pradesh",
-    logoUrl: "",
-    phone: "91XXXXXXXX"
+    name: "Loading...",
+    address: "",
+    phone: "",
+    website: "",
+    logoUrl: ""
   });
 
-  const [studentDetails, setStudentDetails] = useState(null);
+  const TABLE_ROWS_COUNT = 10;
+
+  const normalize = (str = "") => str.toLowerCase().replace(/[^a-z]/g, "");
+
+  const getRow = (exam, subject) =>
+    exam?.rows?.find(
+      (r) =>
+        normalize(r.subject).includes(normalize(subject)) ||
+        normalize(subject).includes(normalize(r.subject))
+    ) || { total: 0, marks: 0 };
+
+  // --- FETCH SCHOOL INFO & SUBJECT MAPPING ---
+  const fetchConfig = async (className) => {
+    try {
+      const docRef = doc(db, "school_config", "master_data");
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        // School Info dynamic set ho rahi hai
+        if (data.schoolInfo) {
+          setSchool(data.schoolInfo);
+        }
+        // Subjects mapping
+        const mapping = data.mapping || {};
+        setSubjects(mapping[className] || []);
+      }
+    } catch (err) {
+      console.error("Config fetch error:", err);
+    }
+  };
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      if (studentId?.toLowerCase().startsWith("class")) {
+        const className = studentId.toLowerCase().replace("class", "Class ");
+        await fetchConfig(className); // Fetch school & subjects
+
+        const qs = query(
+          collection(db, "students"),
+          where("className", "==", className)
+        );
+        const stuSnap = await getDocs(qs);
+        const students = stuSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+        const all = [];
+        for (const stu of students) {
+          const qr = query(
+            collection(db, "examResults"),
+            where("studentId", "==", stu.id),
+            where("session", "==", session)
+          );
+          const rs = await getDocs(qr);
+          const results = rs.docs.map((d) => d.data());
+          const h = results.find((r) => r.exam === "Half-Yearly");
+          const a = results.find((r) => r.exam === "Annual");
+          if (h || a) all.push({ student: stu, half: h, annual: a });
+        }
+        setClassResults(all);
+      } else {
+        // Single Student Case
+        const stuRef = doc(db, "students", studentId);
+        const stuSnap = await getDoc(stuRef);
+
+        if (stuSnap.exists()) {
+          const stu = stuSnap.data();
+          await fetchConfig(stu.className);
+
+          const qr = query(
+            collection(db, "examResults"),
+            where("studentId", "==", studentId),
+            where("session", "==", session)
+          );
+          const rs = await getDocs(qr);
+          const results = rs.docs.map((d) => d.data());
+
+          const h = results.find((r) => r.exam === "Half-Yearly");
+          const a = results.find((r) => r.exam === "Annual");
+          setClassResults([{ student: { id: studentId, ...stu }, half: h, annual: a }]);
+        }
+      }
+    } catch (error) {
+      console.error("Error loading data:", error);
+    }
+    setLoading(false);
+  };
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const schoolSnap = await getDoc(doc(db, "settings", "schoolDetails"));
-        if (schoolSnap.exists()) setSchool(schoolSnap.data());
+    loadData();
+  }, [studentId, session]);
 
-        if (studentId) {
-          const stuSnap = await getDoc(doc(db, "students", studentId));
-          if (stuSnap.exists()) setStudentDetails(stuSnap.data());
-        }
-      } catch (err) {
-        console.error("Error fetching details:", err);
-      }
-    };
-    fetchData();
-  }, [studentId]);
+  const handlePrint = () => {
+    const content = document.getElementById("marksheet-content").innerHTML;
+    const printWindow = window.open("", "_blank");
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>${school.name} - Report Card</title>
+          <script src="https://cdn.tailwindcss.com"></script>
+          <style>
+            @page { size: A4 portrait; margin: 0; }
+            body { font-family: 'Segoe UI', sans-serif; -webkit-print-color-adjust: exact; }
+            .main-border { border: 4px double #1e3a8a; }
+            table td, table th { border: 1px solid #1e3a8a !important; padding: 5px !important; }
+            .page-break { page-break-after: always; }
+          </style>
+        </head>
+        <body onload="window.print(); window.close();">
+          <div class="p-2">${content}</div>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
 
-  const date = paidAt?.seconds
-    ? new Date(paidAt.seconds * 1000).toLocaleDateString("en-GB")
-    : new Date().toLocaleDateString("en-GB");
+  if (loading) return <div className="p-20 text-center font-bold animate-pulse text-blue-900">Loading Report Cards...</div>;
 
-  const totalAmount = Number(monthlyFee || 0) + Number(busFee || 0);
+  return (
+    <div className="bg-slate-600 min-h-screen p-5 print:bg-white print:p-0">
+      <div id="marksheet-content" className="flex flex-col items-center">
+        {classResults.map((item) => {
+          const { student, half, annual } = item;
+          const getMarks = (sub) => {
+            const h = getRow(half, sub);
+            const a = getRow(annual, sub);
+            return { hM: Number(h.total)||0, hO: Number(h.marks)||0, aM: Number(a.total)||0, aO: Number(a.marks)||0 };
+          };
 
-  const ReceiptContent = ({ copyName }) => (
-    <div className="bg-white border-2 border-black p-4 mb-2 relative receipt-block" 
-         style={{ height: "120mm", width: "100%", boxSizing: 'border-box', overflow: 'hidden', position: 'relative' }}>
-      
-      <div className="absolute top-2 right-2 bg-black text-white px-2 py-0.5 text-[8px] font-bold uppercase">
-        {copyName}
+          const tHM = subjects.reduce((acc, s) => acc + getMarks(s).hM, 0);
+          const tHO = subjects.reduce((acc, s) => acc + getMarks(s).hO, 0);
+          const tAM = subjects.reduce((acc, s) => acc + getMarks(s).aM, 0);
+          const tAO = subjects.reduce((acc, s) => acc + getMarks(s).aO, 0);
+          const gTotalO = tHO + tAO;
+          const gTotalM = tHM + tAM;
+          const perc = gTotalM ? ((gTotalO / gTotalM) * 100).toFixed(2) : 0;
+
+          return (
+            <div key={student.id} className="page-break bg-white w-[210mm] h-[297mm] p-[10mm] mb-10 shadow-2xl box-border">
+              <div className="main-border h-full w-full p-6 flex flex-col">
+                
+                {/* Dynamic Header */}
+                <div className="flex items-center border-b-2 border-blue-900 pb-4 mb-4">
+                  <img src={school.logoUrl} alt="Logo" className="w-20 h-20 object-contain" />
+                  <div className="flex-grow text-center">
+                    <h1 className="text-2xl font-black text-blue-900 uppercase">{school.name}</h1>
+                    <p className="text-[10px] text-gray-600 font-bold px-4">{school.address}</p>
+                    <p className="text-[11px] text-blue-800 font-bold">Mo: {school.phone} | {school.website}</p>
+                    <span className="bg-blue-900 text-white px-4 py-1 rounded-full text-[10px] mt-2 inline-block">SESSION: {session}</span>
+                  </div>
+                </div>
+
+                {/* Student Details */}
+                <div className="flex justify-between mb-4 text-blue-900">
+                  <div className="flex-grow space-y-1 text-sm font-bold">
+                    <p className="border-b border-blue-100 pb-1">NAME: <span className="text-black uppercase ml-2">{student.name}</span></p>
+                    <p className="border-b border-blue-100 pb-1">ROLL NO: <span className="text-black ml-2">{student.rollNumber || "---"}</span></p>
+                    <p className="border-b border-blue-100 pb-1">CLASS: <span className="text-black uppercase ml-2">{student.className}</span></p>
+                    <p className="border-b border-blue-100 pb-1">FATHER'S NAME: <span className="text-black uppercase ml-2">{student.fatherName || "---"}</span></p>
+                  </div>
+                  <div className="w-28 h-32 border-2 border-blue-900 ml-4 overflow-hidden shadow-md">
+                    <img src={student.photoURL || student.photo || "https://via.placeholder.com/150"} alt="Student" className="w-full h-full object-cover" />
+                  </div>
+                </div>
+
+                {/* Table */}
+                <div className="flex-grow">
+                  <table className="w-full text-xs">
+                    <thead className="bg-blue-900 text-white">
+                      <tr>
+                        <th rowSpan="2">S.N</th>
+                        <th rowSpan="2" className="text-left">SUBJECTS</th>
+                        <th colSpan="2">HALF YEARLY</th>
+                        <th colSpan="2">ANNUAL</th>
+                        <th rowSpan="2" className="bg-blue-950">GRAND TOTAL</th>
+                      </tr>
+                      <tr className="bg-blue-800 text-[10px]">
+                        <th>MAX</th><th>OBT</th><th>MAX</th><th>OBT</th>
+                      </tr>
+                    </thead>
+                    <tbody className="font-bold text-blue-900">
+                      {subjects.map((sub, i) => {
+                        const m = getMarks(sub);
+                        return (
+                          <tr key={i} className="text-center h-8">
+                            <td>{i+1}</td>
+                            <td className="text-left uppercase px-2">{sub}</td>
+                            <td className="text-gray-400">{m.hM}</td>
+                            <td className="text-black">{m.hO}</td>
+                            <td className="text-gray-400">{m.aM}</td>
+                            <td className="text-black">{m.aO}</td>
+                            <td className="bg-blue-50 text-black">
+                              {m.hO + m.aO} <span className="text-[9px] text-gray-400">/ {m.hM + m.aM}</span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {/* Blank rows to maintain A4 height */}
+                      {Array.from({ length: Math.max(0, TABLE_ROWS_COUNT - subjects.length) }).map((_, i) => (
+                        <tr key={i} className="h-8"><td></td><td></td><td></td><td></td><td></td><td></td><td className="bg-blue-50/30"></td></tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-blue-900 text-white font-black">
+                      <tr className="text-center">
+                        <td colSpan="2" className="text-right px-4">TOTAL MARKS:</td>
+                        <td>{tHM}</td><td className="text-sm">{tHO}</td>
+                        <td>{tAM}</td><td className="text-sm">{tAO}</td>
+                        <td className="bg-yellow-400 text-blue-900 text-lg">{gTotalO} <span className="text-xs">/ {gTotalM}</span></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+
+                {/* Summary */}
+                <div className="grid grid-cols-3 gap-4 mt-6">
+                  <div className="border-2 border-blue-900 p-2 text-center rounded">
+                    <p className="text-[10px] font-bold text-gray-500 uppercase">Percentage</p>
+                    <p className="text-xl font-black">{perc}%</p>
+                  </div>
+                  <div className="border-2 border-blue-900 p-2 text-center rounded bg-blue-50">
+                    <p className="text-[10px] font-bold text-gray-500 uppercase">Result</p>
+                    <p className={`text-xl font-black ${perc >= 33 ? 'text-green-600' : 'text-red-600'}`}>{perc >= 33 ? 'PASSED' : 'FAILED'}</p>
+                  </div>
+                  <div className="border-2 border-blue-900 p-2 text-center rounded">
+                    <p className="text-[10px] font-bold text-gray-500 uppercase">Grade</p>
+                    <p className="text-xl font-black">{perc >= 75 ? 'A+' : perc >= 60 ? 'A' : perc >= 45 ? 'B' : 'C'}</p>
+                  </div>
+                </div>
+
+                {/* Footer Signatures */}
+                <div className="flex justify-between items-end mt-12 mb-4 px-4">
+                  <div className="text-center"><div className="w-32 border-t-2 border-blue-900 mb-1"></div><p className="text-[10px] font-bold">CLASS TEACHER</p></div>
+                  <div className="text-center"><div className="w-20 h-20 border border-dashed border-gray-300 rounded-full flex items-center justify-center text-[8px] text-gray-400">SEAL</div></div>
+                  <div className="text-center"><div className="w-32 border-t-2 border-blue-900 mb-1"></div><p className="text-[10px] font-bold">PRINCIPAL</p></div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
 
-      {/* HEADER */}
-      <div className="flex items-center border-b border-black pb-2 mb-2 gap-3">
-        {school.logoUrl && <img src={school.logoUrl} alt="Logo" className="h-12 w-12 object-contain" />}
-        <div className="flex-1 text-center">
-          <h1 className="text-lg font-black uppercase leading-tight text-blue-900">{school.name}</h1>
-          <p className="text-[8px] font-bold text-gray-700">{school.address}</p>
-          <p className="text-[9px] font-black italic text-blue-700">Mob: {school.phone}</p>
-        </div>
-      </div>
-
-      <div className="text-center mb-2">
-        <span className="border border-black px-4 py-0.5 font-black text-[10px] uppercase bg-gray-50 italic">Fees Receipt</span>
-      </div>
-
-      {/* STUDENT INFO */}
-      <div className="grid grid-cols-2 text-[9px] gap-y-0.5 mb-2 border-b border-dashed border-black pb-1">
-        <p><b>Reg No:</b> {studentDetails?.regNo || "---"}</p>
-        <p className="text-right"><b>Date:</b> {date}</p>
-        <p className="col-span-2 text-[11px]"><b>Student:</b> <span className="font-black uppercase">{name}</span></p>
-        <p><b>Father:</b> <span className="uppercase">{studentDetails?.fatherName}</span></p>
-        <p className="text-right"><b>Class:</b> {studentClass}</p>
-        <p><b>Aadhaar:</b> {studentDetails?.aadhaar || "---"}</p>
-        <p className="text-right"><b>Month:</b> <span className="font-bold text-blue-700 uppercase">{payMonth}</span></p>
-      </div>
-
-      {/* FEES TABLE */}
-      <table className="w-full border-collapse border border-black text-[10px] mb-2">
-        <thead>
-          <tr className="bg-gray-100 uppercase">
-            <th className="border border-black p-1 text-left">Description</th>
-            <th className="border border-black p-1 text-right">Amount (₹)</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td className="border border-black px-2 py-1 font-bold uppercase">Tuition Fees</td>
-            <td className="border border-black px-2 py-1 text-right font-black">₹{Number(monthlyFee).toFixed(2)}</td>
-          </tr>
-          <tr>
-             <td className="border border-black px-2 py-1 font-bold uppercase italic text-gray-600">Transport Charges</td>
-             <td className="border border-black px-2 py-1 text-right font-black text-gray-600">₹{Number(busFee).toFixed(2)}</td>
-          </tr>
-          <tr className="bg-blue-50 font-black text-[11px]">
-            <td className="border border-black px-2 py-1 text-right uppercase">Total Paid:</td>
-            <td className="border border-black px-2 py-1 text-right text-blue-900">₹{totalAmount.toFixed(2)}/-</td>
-          </tr>
-        </tbody>
-      </table>
-
-      <p className="text-[8px] font-bold uppercase italic text-gray-500 mb-6">Amt in words: {toWords(Math.floor(totalAmount))} Only</p>
-
-      <div className="flex justify-between absolute bottom-4 left-4 right-4 text-[8px] font-black uppercase">
-        <div className="border-t border-black w-24 text-center pt-1">Parent's Sign</div>
-        <div className="border-t border-black w-24 text-center pt-1 italic text-blue-900">Authorized Sign</div>
+      <div className="fixed bottom-10 right-10 print:hidden flex gap-3">
+        <button onClick={() => window.location.reload()} className="bg-white text-blue-900 font-bold px-6 py-3 rounded-full shadow-lg border-2 border-blue-900 hover:bg-blue-50 transition-all">Refresh</button>
+        <button onClick={handlePrint} className="bg-blue-900 text-white font-black px-10 py-3 rounded-full shadow-2xl hover:scale-105 transition-all">PRINT REPORT CARDS</button>
       </div>
     </div>
   );
-
-  return (
-    <>
-      <style>
-        {`
-        .receipt-overlay {
-          position: fixed; inset: 0; background: rgba(0,0,0,0.8);
-          display: flex; justify-content: center; align-items: flex-start;
-          padding: 10px; z-index: 10000; overflow-y: auto;
-        }
-        @media print {
-          @page { 
-            size: A4 portrait; 
-            margin: 0mm !important; 
-          }
-          html, body {
-            height: 100%;
-            margin: 0 !important;
-            padding: 0 !important;
-            overflow: hidden;
-          }
-          .receipt-overlay { 
-            position: absolute;
-            top: 0; left: 0;
-            width: 100%; height: 100%;
-            background: white !important;
-            display: block !important;
-            padding: 0 !important;
-            margin: 0 !important;
-          }
-          .no-print { 
-            display: none !important; 
-          }
-          .print-container { 
-            width: 100% !important;
-            max-width: 100% !important;
-            margin: 0 !important; 
-            padding: 0 !important;
-            box-shadow: none !important;
-            border: none !important;
-          }
-          #print-area {
-            padding: 2mm !important;
-            width: 210mm;
-            margin: auto;
-          }
-          .receipt-block { 
-            page-break-inside: avoid !important;
-            border: 2px solid black !important;
-            margin-bottom: 5mm !important;
-          }
-        }
-        `}
-      </style>
-
-      <div className="receipt-overlay">
-        <div className="print-container bg-white p-4 rounded-xl shadow-2xl" style={{ width: "210mm" }}>
-          
-          <div className="no-print flex justify-between items-center bg-gray-100 p-3 mb-4 rounded-lg">
-             <button onClick={onClose} className="bg-red-600 text-white px-4 py-2 rounded font-bold text-xs uppercase">Close</button>
-             <p className="font-bold text-xs text-gray-600">A4 PRINTER SETTING: MARGINS = NONE</p>
-             <button onClick={() => window.print()} className="bg-blue-600 text-white px-6 py-2 rounded font-black text-xs uppercase">Print Receipt</button>
-          </div>
-
-          <div id="print-area">
-            <ReceiptContent copyName="Office Copy" />
-            <div className="no-print text-center text-gray-300 my-1 text-[8px]">--------------------------------------------------</div>
-            <ReceiptContent copyName="Student Copy" />
-          </div>
-        </div>
-      </div>
-    </>
-  );
-}
-
-function toWords(num) {
-    const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
-    const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
-    if (num === 0) return 'Zero';
-    function convert(n) {
-        if (n < 20) return ones[n];
-        if (n < 100) return tens[Math.floor(n / 10)] + (n % 10 !== 0 ? ' ' + ones[n % 10] : '');
-        if (n < 1000) return ones[Math.floor(n / 100)] + ' Hundred ' + (n % 100 !== 0 ? 'and ' + convert(n % 100) : '');
-        if (n < 100000) return convert(Math.floor(n / 1000)) + ' Thousand ' + (n % 1000 !== 0 ? convert(n % 1000) : '');
-        return n;
-    }
-    return convert(num);
 }
